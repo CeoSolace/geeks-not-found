@@ -1,7 +1,10 @@
 import Link from 'next/link';
 import '../globals.css';
+import { requireDashboardUser } from '../../lib/auth';
 
-export default function DashboardLayout({ children }) {
+export default async function DashboardLayout({ children }) {
+  const user = await requireDashboardUser();
+
   const menuItems = [
     { href: '/dashboard', label: 'Dashboard', icon: '▦' },
     { href: '/dashboard/audit', label: 'Audit Log', icon: '☰' },
@@ -46,7 +49,10 @@ export default function DashboardLayout({ children }) {
             <p className="text-xs uppercase tracking-widest text-blue-600 font-bold">Internal Dashboard</p>
             <h1 className="text-lg sm:text-xl font-black">ProperGeeks Database System</h1>
           </div>
-          <a href="/login" className="rounded-xl bg-slate-950 text-white px-4 py-2 text-sm font-bold hover:bg-slate-800">Login</a>
+          <div className="text-right">
+            <p className="text-sm font-black">{user.name || user.username}</p>
+            <p className="text-xs text-slate-500 capitalize">{user.role}</p>
+          </div>
         </header>
 
         <section className="p-4 sm:p-8">
