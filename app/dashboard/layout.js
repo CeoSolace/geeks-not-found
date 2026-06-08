@@ -3,29 +3,55 @@ import '../globals.css';
 
 export default function DashboardLayout({ children }) {
   const menuItems = [
-    { href: '/dashboard', label: 'Dashboard' },
-    { href: '/dashboard/audit', label: 'Audit Log' },
-    { href: '/dashboard/staff-create', label: 'Create Staff' },
-    { href: '/dashboard/module-create', label: 'Create Module' },
-    { href: '/dashboard/module-manage', label: 'Manage Modules' },
-    { href: '/dashboard/messaging', label: 'Messaging' },
-    { href: '/dashboard/staff', label: 'Staff Management' },
-    { href: '/dashboard/welcome', label: 'Welcome From Callum' },
+    { href: '/dashboard', label: 'Dashboard', icon: '▦' },
+    { href: '/dashboard/audit', label: 'Audit Log', icon: '☰' },
+    { href: '/dashboard/staff-create', label: 'Create Staff', icon: '+' },
+    { href: '/dashboard/module-create', label: 'Create Log Type', icon: '✦' },
+    { href: '/dashboard/module-manage', label: 'Manage Logs', icon: '▣' },
+    { href: '/dashboard/messaging', label: 'Messaging', icon: '✉' },
+    { href: '/dashboard/staff', label: 'Staff', icon: '◉' },
+    { href: '/dashboard/welcome', label: 'From Callum', icon: '♡' },
   ];
+
   return (
-    <div className="flex min-h-screen">
-      <aside className="w-64 bg-gray-800 text-white p-4 space-y-2">
-        <h2 className="text-xl font-bold mb-4">ProperGeeks DB</h2>
-        <nav className="space-y-2">
+    <div className="min-h-screen bg-slate-100 text-slate-900 lg:flex">
+      <aside className="lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 bg-slate-950 text-white border-r border-slate-800">
+        <div className="p-5 border-b border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="h-11 w-11 rounded-2xl bg-blue-600 flex items-center justify-center font-black text-lg">PG</div>
+            <div>
+              <h2 className="text-lg font-black leading-tight">ProperGeeks</h2>
+              <p className="text-xs text-slate-400">Database System</p>
+            </div>
+          </div>
+        </div>
+
+        <nav className="p-4 grid gap-1">
           {menuItems.map((item) => (
-            <Link key={item.href} href={item.href} className="block py-2 px-3 rounded hover:bg-gray-700">
+            <Link key={item.href} href={item.href} className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800 hover:text-white transition">
+              <span className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center text-blue-300">{item.icon}</span>
               {item.label}
             </Link>
           ))}
         </nav>
+
+        <div className="p-4 text-xs text-slate-500 border-t border-slate-800 mt-4">
+          Built for ProperGeeks by Callum.
+        </div>
       </aside>
-      <main className="flex-1 p-6 bg-gray-50 overflow-y-auto">
-        {children}
+
+      <main className="lg:ml-72 flex-1 min-h-screen">
+        <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200 px-4 sm:px-8 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-blue-600 font-bold">Internal Dashboard</p>
+            <h1 className="text-lg sm:text-xl font-black">ProperGeeks Database System</h1>
+          </div>
+          <a href="/login" className="rounded-xl bg-slate-950 text-white px-4 py-2 text-sm font-bold hover:bg-slate-800">Login</a>
+        </header>
+
+        <section className="p-4 sm:p-8">
+          {children}
+        </section>
       </main>
     </div>
   );
