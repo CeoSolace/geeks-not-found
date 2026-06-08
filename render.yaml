@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: propergeeks-db-system
+    env: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.1
+      - key: NODE_ENV
+        value: production
+      - key: APP_URL
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: DEV_CONTROL_ROUTE
+        sync: false
+      - key: DEV_CONTROL_KEY
+        sync: false
