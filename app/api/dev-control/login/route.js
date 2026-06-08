@@ -9,6 +9,10 @@ const COOKIE_OPTIONS = {
   maxAge: 60 * 30,
 };
 
+function appBaseUrl() {
+  return (process.env.APP_URL || 'https://geeks-not-found.onrender.com').replace(/\/$/, '');
+}
+
 function safeCompare(a, b) {
   if (!a || !b) return false;
   const aBuffer = Buffer.from(String(a));
@@ -37,11 +41,10 @@ export async function POST(request) {
   }
 
   if (!safeCompare(key, secretKey)) {
-    const failedUrl = new URL('/', request.url);
-    return NextResponse.redirect(failedUrl, 303);
+    return NextResponse.redirect(new URL('/', appBaseUrl()), 303);
   }
 
-  const redirectUrl = new URL(`/${secretRoute}/dashboard`, request.url);
+  const redirectUrl = new URL(`/${secretRoute}/dashboard`, appBaseUrl());
   const res = NextResponse.redirect(redirectUrl, 303);
   res.cookies.set('devtoken', secretKey, COOKIE_OPTIONS);
   return res;
