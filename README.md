@@ -25,11 +25,14 @@ This repository contains a proof‑of‑concept implementation of the ProperGeek
    APP_URL=http://localhost:3000
    DEV_CONTROL_ROUTE=pg-lockbox-x92kq-71safe-2026
    DEV_CONTROL_KEY=very-long-random-secret-key
+   FOUNDER_BOOTSTRAP_TOKEN=only-set-when-recovering-founder
+   FOUNDER_BOOTSTRAP_PASSWORD=temporary-founder-password
    ```
 
    - `MONGO_URI` should point to your MongoDB database.
    - `AUTH_SECRET` is used to sign JSON Web Tokens.
    - `DEV_CONTROL_ROUTE` and `DEV_CONTROL_KEY` define the secret path and key for the developer emergency control panel.
+   - `FOUNDER_BOOTSTRAP_TOKEN` and `FOUNDER_BOOTSTRAP_PASSWORD` enable the founder recovery endpoint. Only set these in Render when you need to restore `FounderMan2`, then remove or rotate them after recovery.
 
 3. **Run the development server**:
 
@@ -37,7 +40,7 @@ This repository contains a proof‑of‑concept implementation of the ProperGeek
    npm run dev
    ```
 
-   Open [http://localhost:3000](http://localhost:3000) with your browser to see the app. On first run, the app automatically creates a founder account with username `FounderMan2` and password `password123`. You will be prompted to change this password on first login.
+   Open [http://localhost:3000](http://localhost:3000) with your browser to see the app. The app no longer creates a founder account with a password hardcoded into source. To create or restore `FounderMan2`, set `FOUNDER_BOOTSTRAP_TOKEN` and `FOUNDER_BOOTSTRAP_PASSWORD`, deploy, and call the bootstrap recovery endpoint.
 
 4. **Build for production**:
 
@@ -45,6 +48,34 @@ This repository contains a proof‑of‑concept implementation of the ProperGeek
    npm run build
    npm start
    ```
+
+## Founder Bootstrap Recovery
+
+Use this only when you are locked out and cannot access MongoDB directly.
+
+1. In Render, add temporary env vars:
+
+   ```env
+   FOUNDER_BOOTSTRAP_TOKEN=a-long-random-secret-token
+   FOUNDER_BOOTSTRAP_PASSWORD=a-temporary-strong-password
+   ```
+
+2. Redeploy the service.
+
+3. Call the recovery endpoint:
+
+   ```bash
+   curl -X POST "https://YOUR-RENDER-APP.onrender.com/api/bootstrap/recover-founder" \
+     -H "Content-Type: application/json" \
+     -H "x-bootstrap-token: a-long-random-secret-token" \
+     -d '{}'
+   ```
+
+4. Log in as `FounderMan2` using `FOUNDER_BOOTSTRAP_PASSWORD`.
+
+5. Change the password immediately, then remove or rotate `FOUNDER_BOOTSTRAP_TOKEN` and `FOUNDER_BOOTSTRAP_PASSWORD` in Render.
+
+The endpoint is disabled when either env var is missing, restores `FounderMan2` as `founder`, unlocks/enables the account, resets failed login attempts, and forces a password change.
 
 ## Project Structure
 
@@ -72,13 +103,15 @@ app/
     ├── auth/
     │   ├── login/route.js       Login endpoint
     │   └── change-password/route.js Password change endpoint
+    ├── bootstrap/
+    │   └── recover-founder/route.js FounderMan2 env-gated recovery endpoint
     └── dev-control/
         ├── login/route.js      Developer panel login endpoint
         └── action/route.js     Perform emergency actions
 
 lib/
 ├── db.js                    Mongoose connection helper
-├── ensureFounder.js         Ensure founder account exists on startup
+├── ensureFounder.js         Optional env-based founder creation helper
 
 models/
 ├── User.js                  User schema
@@ -89,7 +122,7 @@ models/
 ├── Notification.js          Notifications schema
 └── SecurityEvent.js         Security events schema
 
-postcss.config.js           PostCSS configuration for Tailwind
+postcss.config.js           PostCSS configuration
 tailwind.config.js          Tailwind configuration
 
 .env.example                 Example environment variables
@@ -110,5 +143,3 @@ This skeleton provides the basic structure required to build the full ProperGeek
 - Add detailed audit logging and export functionality.
 - Flesh out the developer emergency panel actions and security logging.
 - Deploy to Render or an Ubuntu VPS following best practices.
-
-This repository lays the groundwork and gives you a strong starting point for developing the comprehensive system described in the project brief.
