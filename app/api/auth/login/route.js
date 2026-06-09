@@ -22,16 +22,69 @@ function normaliseUsername(value) {
   return String(value || '').trim();
 }
 
+function wantsJson(request) {
+  const contentType = request.headers.get('content-type') || '';
+  const accept = request.headers.get('accept') || '';
+  return contentType.includes('application/json') || accept.includes('application/json');
+}
+
+async function readLoginBody(request) {
+  const contentType = request.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    const body = await request.json().catch(() => ({}));
+    return {
+      username: normaliseUsername(body.username),
+      password: String(body.password || ''),
+    };
+  }
+
+  const form = await request.formData().catch(() => null);
+  return {
+    username: normaliseUsername(form?.get('username')),
+    password: String(form?.get('password') || ''),
+  };
+}
+
+function loginUrl(request, params = {}) {
+  const url = new URL('/login', request.url);
+  for (const [key, value] of Object.entries(params)) {
+    if (value) url.searchParams.set(key, value);
+  }
+  return url;
+}
+
+function fail(request, message, status = 400) {
+  if (wantsJson(request)) {
+    return NextResponse.json({ ok: false, message }, { status });
+  }
+  return NextResponse.redirect(loginUrl(request, { error: message }), { status: 303 });
+}
+
+function success(request, payload, token, maxAge) {
+  if (wantsJson(request)) {
+    const res = NextResponse.json(payload);
+    res.cookies.set(AUTH_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
+    res.cookies.set(LEGACY_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
+  }
+
+  const res = NextResponse.redirect(new URL(payload.redirectTo, request.url), { status: 303 });
+  res.cookies.set(AUTH_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
+  res.cookies.set(LEGACY_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
+}
+
 export async function POST(request) {
   const meta = getRequestMeta(request);
 
   try {
-    const body = await request.json().catch(() => ({}));
-    const username = normaliseUsername(body.username);
-    const password = String(body.password || '');
+    const { username, password } = await readLoginBody(request);
 
     if (!username || !password) {
-      return NextResponse.json({ ok: false, message: 'Username and password are required' }, { status: 400 });
+      return fail(request, 'Username and password are required', 400);
     }
 
     await connectDb();
@@ -41,17 +94,17 @@ export async function POST(request) {
 
     if (!user) {
       await AuditLog.create({ action: 'failed_login', description: `Failed login for unknown user: ${username}`, ...meta });
-      return NextResponse.json({ ok: false, message: 'Invalid username or password' }, { status: 401 });
+      return fail(request, 'Invalid username or password', 401);
     }
 
     if (user.disabled) {
       await AuditLog.create({ user: user._id, action: 'blocked_login_disabled', description: 'Disabled account tried to login', ...meta });
-      return NextResponse.json({ ok: false, message: 'Account disabled' }, { status: 403 });
+      return fail(request, 'Account disabled', 403);
     }
 
     if (user.locked) {
       await AuditLog.create({ user: user._id, action: 'blocked_login_locked', description: 'Locked account tried to login', ...meta });
-      return NextResponse.json({ ok: false, message: 'Account locked' }, { status: 423 });
+      return fail(request, 'Account locked', 423);
     }
 
     const validPassword = await bcrypt.compare(password, user.passwordHash);
@@ -60,7 +113,7 @@ export async function POST(request) {
       user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
       await user.save();
       await AuditLog.create({ user: user._id, action: 'failed_login', description: 'Wrong password', ...meta });
-      return NextResponse.json({ ok: false, message: 'Invalid username or password' }, { status: 401 });
+      return fail(request, 'Invalid username or password', 401);
     }
 
     user.failedLoginAttempts = 0;
@@ -79,25 +132,21 @@ export async function POST(request) {
       ...meta,
     });
 
-    const res = NextResponse.json({
-      ok: true,
-      message: mustChangePassword ? 'Password change required' : 'Logged in',
-      username: user.username,
-      role: user.role,
-      mustChangePassword,
-      redirectTo,
-    });
-
-    res.cookies.set(AUTH_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
-    res.cookies.set(LEGACY_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
-    res.headers.set('Cache-Control', 'no-store');
-
-    return res;
+    return success(
+      request,
+      {
+        ok: true,
+        message: mustChangePassword ? 'Password change required' : 'Logged in',
+        username: user.username,
+        role: user.role,
+        mustChangePassword,
+        redirectTo,
+      },
+      token,
+      maxAge
+    );
   } catch (err) {
     console.error('Login error:', err);
-    return NextResponse.json(
-      { ok: false, message: 'Login server error. Check AUTH_SECRET, MONGO_URI, and Render logs.' },
-      { status: 500 }
-    );
+    return fail(request, 'Login server error. Check AUTH_SECRET, MONGO_URI, and Render logs.', 500);
   }
 }
