@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import '../globals.css';
 import { requireDashboardUser } from '../../lib/auth';
 
 export default async function DashboardLayout({ children }) {
@@ -21,9 +20,9 @@ export default async function DashboardLayout({ children }) {
       <aside className="lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 bg-slate-950 text-white border-r border-slate-800">
         <div className="p-5 border-b border-slate-800">
           <div className="flex items-center gap-3">
-            <div className="h-11 w-11 rounded-2xl bg-blue-600 flex items-center justify-center font-black text-lg">PG</div>
+            <div className="h-11 w-11 rounded-2xl bg-blue-600 flex items-center justify-center font-black text-lg text-white">PG</div>
             <div>
-              <h2 className="text-lg font-black leading-tight">ProperGeeks</h2>
+              <h2 className="text-lg font-black leading-tight text-white">ProperGeeks</h2>
               <p className="text-xs text-slate-400">Database System</p>
             </div>
           </div>
@@ -47,10 +46,10 @@ export default async function DashboardLayout({ children }) {
         <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200 px-4 sm:px-8 py-4 flex items-center justify-between">
           <div>
             <p className="text-xs uppercase tracking-widest text-blue-600 font-bold">Internal Dashboard</p>
-            <h1 className="text-lg sm:text-xl font-black">ProperGeeks Database System</h1>
+            <h1 className="text-lg sm:text-xl font-black text-slate-950">ProperGeeks Database System</h1>
           </div>
           <div className="text-right">
-            <p className="text-sm font-black">{user.name || user.username}</p>
+            <p className="text-sm font-black text-slate-950">{user.name || user.username}</p>
             <p className="text-xs text-slate-500 capitalize">{user.role}</p>
           </div>
         </header>
