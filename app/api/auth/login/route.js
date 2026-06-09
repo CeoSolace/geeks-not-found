@@ -1,10 +1,5 @@
 import { NextResponse } from 'next/server';
-import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { connectDb } from '../../../../lib/db';
-import { ensureFounder } from '../../../../lib/ensureFounder';
-import User from '../../../../models/User';
-import AuditLog from '../../../../models/AuditLog';
 
 const AUTH_COOKIE_NAME = 'pg_session';
 const LEGACY_COOKIE_NAME = 'token';
@@ -17,13 +12,17 @@ const COOKIE_OPTIONS = {
 };
 
 function getAuthSecret() {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) throw new Error('AUTH_SECRET is missing');
+  const secret = process.env.AUTH_SECRET || process.env.F_PASSWORD;
+  if (!secret) throw new Error('AUTH_SECRET or F_PASSWORD is missing');
   return secret;
 }
 
-function normaliseUsername(value) {
-  return String(value || '').trim();
+function getFounderLogin() {
+  return String(process.env.F_LOGIN || '').trim();
+}
+
+function getFounderPassword() {
+  return String(process.env.F_PASSWORD || '');
 }
 
 function wantsJson(request) {
@@ -32,41 +31,35 @@ function wantsJson(request) {
   return contentType.includes('application/json') || accept.includes('application/json');
 }
 
-function getRequestMeta(request) {
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  const ipAddress = forwardedFor ? forwardedFor.split(',')[0].trim() : request.headers.get('x-real-ip') || 'unknown';
-  const userAgent = request.headers.get('user-agent') || 'unknown';
-  return { ipAddress, userAgent };
-}
-
 async function readLoginBody(request) {
   const contentType = request.headers.get('content-type') || '';
 
   if (contentType.includes('application/json')) {
     const body = await request.json().catch(() => ({}));
     return {
-      username: normaliseUsername(body.username),
+      username: String(body.username || '').trim(),
       password: String(body.password || ''),
     };
   }
 
   const form = await request.formData().catch(() => null);
   return {
-    username: normaliseUsername(form?.get('username')),
+    username: String(form?.get('username') || '').trim(),
     password: String(form?.get('password') || ''),
   };
 }
 
-function signSession(user, expiresIn) {
+function signEnvSession(username) {
   return jwt.sign(
     {
-      sub: String(user._id),
-      username: user.username,
-      role: user.role,
-      mustChangePassword: Boolean(user.mustChangePassword),
+      sub: 'env-founder',
+      username,
+      role: 'founder',
+      mustChangePassword: false,
+      authSource: 'env',
     },
     getAuthSecret(),
-    { expiresIn }
+    { expiresIn: '8h' }
   );
 }
 
@@ -88,87 +81,52 @@ function fail(request, message, status = 400) {
   return redirectTo(`/login?error=${encodeURIComponent(message)}`);
 }
 
-function success(request, payload, token, maxAge) {
+function success(request, payload, token) {
   const res = wantsJson(request)
     ? NextResponse.json(payload)
     : redirectTo(payload.redirectTo);
 
-  res.cookies.set(AUTH_COOKIE_NAME, token, { ...COOKIE_OPTIONS, maxAge });
-  res.cookies.set(LEGACY_COOKIE_NAME, token, { ...COOKIE_OPTIONS, maxAge });
+  res.cookies.set(AUTH_COOKIE_NAME, token, { ...COOKIE_OPTIONS, maxAge: 60 * 60 * 8 });
+  res.cookies.set(LEGACY_COOKIE_NAME, token, { ...COOKIE_OPTIONS, maxAge: 60 * 60 * 8 });
   res.headers.set('Cache-Control', 'no-store');
   return res;
 }
 
 export async function POST(request) {
-  const meta = getRequestMeta(request);
-
   try {
+    const configuredLogin = getFounderLogin();
+    const configuredPassword = getFounderPassword();
+
+    if (!configuredLogin || !configuredPassword) {
+      return fail(request, 'F_LOGIN and F_PASSWORD must be set in Render env.', 500);
+    }
+
     const { username, password } = await readLoginBody(request);
 
     if (!username || !password) {
       return fail(request, 'Username and password are required', 400);
     }
 
-    await connectDb();
-    await ensureFounder();
-
-    const user = await User.findOne({ username });
-
-    if (!user) {
-      await AuditLog.create({ action: 'failed_login', description: `Failed login for unknown user: ${username}`, ...meta }).catch(() => null);
+    if (username !== configuredLogin || password !== configuredPassword) {
       return fail(request, 'Invalid username or password', 401);
     }
 
-    if (user.disabled) {
-      await AuditLog.create({ user: user._id, action: 'blocked_login_disabled', description: 'Disabled account tried to login', ...meta }).catch(() => null);
-      return fail(request, 'Account disabled', 403);
-    }
-
-    if (user.locked) {
-      await AuditLog.create({ user: user._id, action: 'blocked_login_locked', description: 'Locked account tried to login', ...meta }).catch(() => null);
-      return fail(request, 'Account locked', 423);
-    }
-
-    const validPassword = await bcrypt.compare(password, user.passwordHash);
-
-    if (!validPassword) {
-      user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
-      await user.save();
-      await AuditLog.create({ user: user._id, action: 'failed_login', description: 'Wrong password', ...meta }).catch(() => null);
-      return fail(request, 'Invalid username or password', 401);
-    }
-
-    user.failedLoginAttempts = 0;
-    user.lastLoginAt = new Date();
-    await user.save();
-
-    const mustChangePassword = Boolean(user.mustChangePassword);
-    const redirectToPath = mustChangePassword ? '/change-password' : '/dashboard';
-    const maxAge = mustChangePassword ? 60 * 20 : 60 * 60 * 8;
-    const token = signSession(user, mustChangePassword ? '20m' : '8h');
-
-    await AuditLog.create({
-      user: user._id,
-      action: 'login',
-      description: mustChangePassword ? 'Login accepted, password change required' : 'Login successful',
-      ...meta,
-    }).catch(() => null);
+    const token = signEnvSession(configuredLogin);
 
     return success(
       request,
       {
         ok: true,
-        message: mustChangePassword ? 'Password change required' : 'Logged in',
-        username: user.username,
-        role: user.role,
-        mustChangePassword,
-        redirectTo: redirectToPath,
+        message: 'Logged in',
+        username: configuredLogin,
+        role: 'founder',
+        mustChangePassword: false,
+        redirectTo: '/dashboard',
       },
-      token,
-      maxAge
+      token
     );
   } catch (err) {
-    console.error('Login error:', err);
-    return fail(request, 'Login server error. Check AUTH_SECRET, MONGO_URI, and Render logs.', 500);
+    console.error('Env login error:', err);
+    return fail(request, 'Login server error. Check F_LOGIN, F_PASSWORD, and AUTH_SECRET.', 500);
   }
 }
