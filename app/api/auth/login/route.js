@@ -1,29 +1,14 @@
 import { NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
-
-const AUTH_COOKIE_NAME = 'pg_session';
-const LEGACY_COOKIE_NAME = 'token';
-
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  sameSite: 'lax',
-  secure: process.env.NODE_ENV === 'production',
-  path: '/',
-};
-
-function getAuthSecret() {
-  const secret = process.env.AUTH_SECRET || process.env.F_PASSWORD;
-  if (!secret) throw new Error('AUTH_SECRET or F_PASSWORD is missing');
-  return secret;
-}
-
-function getFounderLogin() {
-  return String(process.env.F_LOGIN || '').trim();
-}
-
-function getFounderPassword() {
-  return String(process.env.F_PASSWORD || '');
-}
+import {
+  ENV_SESSION_COOKIE,
+  LEGACY_SESSION_COOKIE,
+  ENV_COOKIE_OPTIONS,
+  ENV_SESSION_MAX_AGE,
+  envAuthReady,
+  getEnvLogin,
+  getEnvPass,
+  makeEnvSession,
+} from '../../../../lib/envSession';
 
 function wantsJson(request) {
   const contentType = request.headers.get('content-type') || '';
@@ -49,21 +34,7 @@ async function readLoginBody(request) {
   };
 }
 
-function signEnvSession(username) {
-  return jwt.sign(
-    {
-      sub: 'env-founder',
-      username,
-      role: 'founder',
-      mustChangePassword: false,
-      authSource: 'env',
-    },
-    getAuthSecret(),
-    { expiresIn: '8h' }
-  );
-}
-
-function redirectTo(path) {
+function redirect(path) {
   const safePath = path && path.startsWith('/') && !path.startsWith('//') ? path : '/dashboard';
   return new NextResponse(null, {
     status: 303,
@@ -75,29 +46,20 @@ function redirectTo(path) {
 }
 
 function fail(request, message, status = 400) {
-  if (wantsJson(request)) {
-    return NextResponse.json({ ok: false, message }, { status });
-  }
-  return redirectTo(`/login?error=${encodeURIComponent(message)}`);
+  if (wantsJson(request)) return NextResponse.json({ ok: false, message }, { status });
+  return redirect(`/login?error=${encodeURIComponent(message)}`);
 }
 
-function success(request, payload, token) {
-  const res = wantsJson(request)
-    ? NextResponse.json(payload)
-    : redirectTo(payload.redirectTo);
-
-  res.cookies.set(AUTH_COOKIE_NAME, token, { ...COOKIE_OPTIONS, maxAge: 60 * 60 * 8 });
-  res.cookies.set(LEGACY_COOKIE_NAME, token, { ...COOKIE_OPTIONS, maxAge: 60 * 60 * 8 });
-  res.headers.set('Cache-Control', 'no-store');
-  return res;
+function setSessionCookies(response, token) {
+  response.cookies.set(ENV_SESSION_COOKIE, token, { ...ENV_COOKIE_OPTIONS, maxAge: ENV_SESSION_MAX_AGE });
+  response.cookies.set(LEGACY_SESSION_COOKIE, token, { ...ENV_COOKIE_OPTIONS, maxAge: ENV_SESSION_MAX_AGE });
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
 }
 
 export async function POST(request) {
   try {
-    const configuredLogin = getFounderLogin();
-    const configuredPassword = getFounderPassword();
-
-    if (!configuredLogin || !configuredPassword) {
+    if (!envAuthReady()) {
       return fail(request, 'F_LOGIN and F_PASSWORD must be set in Render env.', 500);
     }
 
@@ -107,26 +69,23 @@ export async function POST(request) {
       return fail(request, 'Username and password are required', 400);
     }
 
-    if (username !== configuredLogin || password !== configuredPassword) {
+    if (username !== getEnvLogin() || password !== getEnvPass()) {
       return fail(request, 'Invalid username or password', 401);
     }
 
-    const token = signEnvSession(configuredLogin);
+    const token = makeEnvSession();
+    const payload = {
+      ok: true,
+      message: 'Logged in',
+      username: getEnvLogin(),
+      role: 'founder',
+      redirectTo: '/dashboard',
+    };
 
-    return success(
-      request,
-      {
-        ok: true,
-        message: 'Logged in',
-        username: configuredLogin,
-        role: 'founder',
-        mustChangePassword: false,
-        redirectTo: '/dashboard',
-      },
-      token
-    );
+    const res = wantsJson(request) ? NextResponse.json(payload) : redirect('/dashboard');
+    return setSessionCookies(res, token);
   } catch (err) {
-    console.error('Env login error:', err);
-    return fail(request, 'Login server error. Check F_LOGIN, F_PASSWORD, and AUTH_SECRET.', 500);
+    console.error('Login error:', err);
+    return fail(request, 'Login server error. Check F_LOGIN, F_PASSWORD and AUTH_SECRET.', 500);
   }
 }
