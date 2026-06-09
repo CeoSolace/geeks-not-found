@@ -37,8 +37,13 @@ export default async function DashboardLayout({ children }) {
           ))}
         </nav>
 
-        <div className="p-4 text-xs text-slate-500 border-t border-slate-800 mt-4">
-          Built for ProperGeeks by Callum.
+        <div className="p-4 text-xs text-slate-500 border-t border-slate-800 mt-4 space-y-3">
+          <p>Built for ProperGeeks by Callum.</p>
+          <form method="POST" action="/api/auth/logout">
+            <button className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm font-bold text-white hover:bg-slate-700" type="submit">
+              Logout
+            </button>
+          </form>
         </div>
       </aside>
 
