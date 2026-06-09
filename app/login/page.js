@@ -1,42 +1,45 @@
 export default function LoginPage({ searchParams }) {
-  const error = searchParams?.error || '';
-  const message = searchParams?.message || '';
+  const error = searchParams?.error ? String(searchParams.error) : '';
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-100 px-4 text-slate-950">
-      <form method="POST" action="/api/auth/login" className="bg-white p-6 rounded-xl shadow w-full max-w-sm border border-gray-200">
-        <h1 className="text-2xl font-bold mb-1 text-slate-950">ProperGeeks Login</h1>
-        <p className="text-sm text-gray-600 mb-4">Use the Render env login credentials.</p>
+    <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4 text-slate-950">
+      <form method="POST" action="/api/auth/login" className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+        <div className="mb-6">
+          <p className="text-xs font-black uppercase tracking-widest text-blue-600">Founder Access</p>
+          <h1 className="mt-2 text-3xl font-black text-slate-950">ProperGeeks Login</h1>
+          <p className="mt-2 text-sm text-slate-600">Use the Render env credentials: F_LOGIN and F_PASSWORD.</p>
+        </div>
 
-        {error && <p className="text-red-700 bg-red-50 border border-red-200 rounded p-2 mb-3 text-sm font-semibold">{decodeURIComponent(error)}</p>}
-        {message && <p className="text-blue-700 bg-blue-50 border border-blue-200 rounded p-2 mb-3 text-sm font-semibold">{decodeURIComponent(message)}</p>}
+        {error && (
+          <p className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+            {decodeURIComponent(error)}
+          </p>
+        )}
 
-        <div className="mb-4">
-          <label className="block mb-1 font-medium text-slate-800" htmlFor="username">F_LOGIN</label>
+        <label className="mb-4 block">
+          <span className="mb-1 block text-sm font-bold text-slate-800">Username</span>
           <input
-            id="username"
             name="username"
             type="text"
             autoComplete="username"
-            className="w-full border border-slate-300 rounded px-3 py-2 text-slate-950 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-slate-950 outline-none focus:ring-2 focus:ring-blue-500"
             required
           />
-        </div>
+        </label>
 
-        <div className="mb-4">
-          <label className="block mb-1 font-medium text-slate-800" htmlFor="password">F_PASSWORD</label>
+        <label className="mb-5 block">
+          <span className="mb-1 block text-sm font-bold text-slate-800">Password</span>
           <input
-            id="password"
             name="password"
             type="password"
             autoComplete="current-password"
-            className="w-full border border-slate-300 rounded px-3 py-2 text-slate-950 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-slate-950 outline-none focus:ring-2 focus:ring-blue-500"
             required
           />
-        </div>
+        </label>
 
-        <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 font-bold">
-          Login → Dashboard
+        <button type="submit" className="w-full rounded-xl bg-blue-600 py-3 font-black text-white hover:bg-blue-700">
+          Login
         </button>
       </form>
     </main>
