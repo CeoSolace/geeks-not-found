@@ -1,21 +1,25 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { connectDb } from '../../../../lib/db';
 import { ensureFounder } from '../../../../lib/ensureFounder';
 import User from '../../../../models/User';
 import AuditLog from '../../../../models/AuditLog';
-import {
-  AUTH_COOKIE_NAME,
-  LEGACY_COOKIE_NAME,
-  AUTH_COOKIE_OPTIONS,
-  signSession,
-} from '../../../../lib/auth';
 
-function getRequestMeta(request) {
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  const ipAddress = forwardedFor ? forwardedFor.split(',')[0].trim() : request.headers.get('x-real-ip') || 'unknown';
-  const userAgent = request.headers.get('user-agent') || 'unknown';
-  return { ipAddress, userAgent };
+const AUTH_COOKIE_NAME = 'pg_session';
+const LEGACY_COOKIE_NAME = 'token';
+
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  path: '/',
+};
+
+function getAuthSecret() {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) throw new Error('AUTH_SECRET is missing');
+  return secret;
 }
 
 function normaliseUsername(value) {
@@ -28,38 +32,11 @@ function wantsJson(request) {
   return contentType.includes('application/json') || accept.includes('application/json');
 }
 
-function cleanBaseUrl(value) {
-  const raw = String(value || '').trim().replace(/\/$/, '');
-  if (!raw) return '';
-  if (raw.includes('localhost') || raw.includes('127.0.0.1')) return '';
-  return raw;
-}
-
-function getPublicBaseUrl(request) {
-  const appUrl = cleanBaseUrl(process.env.APP_URL);
-  if (appUrl) return appUrl;
-
-  const forwardedHost = request.headers.get('x-forwarded-host');
-  const host = forwardedHost || request.headers.get('host') || '';
-  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
-
-  if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
-    return `${forwardedProto}://${host}`;
-  }
-
-  return '';
-}
-
-function makeUrl(request, path, params = {}) {
-  const safePath = path && path.startsWith('/') && !path.startsWith('//') ? path : '/dashboard';
-  const base = getPublicBaseUrl(request);
-  const url = base ? new URL(safePath, base) : new URL(safePath, request.url);
-
-  for (const [key, value] of Object.entries(params)) {
-    if (value) url.searchParams.set(key, value);
-  }
-
-  return url;
+function getRequestMeta(request) {
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  const ipAddress = forwardedFor ? forwardedFor.split(',')[0].trim() : request.headers.get('x-real-ip') || 'unknown';
+  const userAgent = request.headers.get('user-agent') || 'unknown';
+  return { ipAddress, userAgent };
 }
 
 async function readLoginBody(request) {
@@ -80,25 +57,44 @@ async function readLoginBody(request) {
   };
 }
 
+function signSession(user, expiresIn) {
+  return jwt.sign(
+    {
+      sub: String(user._id),
+      username: user.username,
+      role: user.role,
+      mustChangePassword: Boolean(user.mustChangePassword),
+    },
+    getAuthSecret(),
+    { expiresIn }
+  );
+}
+
+function redirectTo(path) {
+  const safePath = path && path.startsWith('/') && !path.startsWith('//') ? path : '/dashboard';
+  return new NextResponse(null, {
+    status: 303,
+    headers: {
+      Location: safePath,
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
 function fail(request, message, status = 400) {
   if (wantsJson(request)) {
     return NextResponse.json({ ok: false, message }, { status });
   }
-  return NextResponse.redirect(makeUrl(request, '/login', { error: message }), { status: 303 });
+  return redirectTo(`/login?error=${encodeURIComponent(message)}`);
 }
 
 function success(request, payload, token, maxAge) {
-  if (wantsJson(request)) {
-    const res = NextResponse.json(payload);
-    res.cookies.set(AUTH_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
-    res.cookies.set(LEGACY_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
-    res.headers.set('Cache-Control', 'no-store');
-    return res;
-  }
+  const res = wantsJson(request)
+    ? NextResponse.json(payload)
+    : redirectTo(payload.redirectTo);
 
-  const res = NextResponse.redirect(makeUrl(request, payload.redirectTo), { status: 303 });
-  res.cookies.set(AUTH_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
-  res.cookies.set(LEGACY_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
+  res.cookies.set(AUTH_COOKIE_NAME, token, { ...COOKIE_OPTIONS, maxAge });
+  res.cookies.set(LEGACY_COOKIE_NAME, token, { ...COOKIE_OPTIONS, maxAge });
   res.headers.set('Cache-Control', 'no-store');
   return res;
 }
@@ -119,17 +115,17 @@ export async function POST(request) {
     const user = await User.findOne({ username });
 
     if (!user) {
-      await AuditLog.create({ action: 'failed_login', description: `Failed login for unknown user: ${username}`, ...meta });
+      await AuditLog.create({ action: 'failed_login', description: `Failed login for unknown user: ${username}`, ...meta }).catch(() => null);
       return fail(request, 'Invalid username or password', 401);
     }
 
     if (user.disabled) {
-      await AuditLog.create({ user: user._id, action: 'blocked_login_disabled', description: 'Disabled account tried to login', ...meta });
+      await AuditLog.create({ user: user._id, action: 'blocked_login_disabled', description: 'Disabled account tried to login', ...meta }).catch(() => null);
       return fail(request, 'Account disabled', 403);
     }
 
     if (user.locked) {
-      await AuditLog.create({ user: user._id, action: 'blocked_login_locked', description: 'Locked account tried to login', ...meta });
+      await AuditLog.create({ user: user._id, action: 'blocked_login_locked', description: 'Locked account tried to login', ...meta }).catch(() => null);
       return fail(request, 'Account locked', 423);
     }
 
@@ -138,7 +134,7 @@ export async function POST(request) {
     if (!validPassword) {
       user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
       await user.save();
-      await AuditLog.create({ user: user._id, action: 'failed_login', description: 'Wrong password', ...meta });
+      await AuditLog.create({ user: user._id, action: 'failed_login', description: 'Wrong password', ...meta }).catch(() => null);
       return fail(request, 'Invalid username or password', 401);
     }
 
@@ -147,7 +143,7 @@ export async function POST(request) {
     await user.save();
 
     const mustChangePassword = Boolean(user.mustChangePassword);
-    const redirectTo = mustChangePassword ? '/change-password' : '/dashboard';
+    const redirectToPath = mustChangePassword ? '/change-password' : '/dashboard';
     const maxAge = mustChangePassword ? 60 * 20 : 60 * 60 * 8;
     const token = signSession(user, mustChangePassword ? '20m' : '8h');
 
@@ -156,7 +152,7 @@ export async function POST(request) {
       action: 'login',
       description: mustChangePassword ? 'Login accepted, password change required' : 'Login successful',
       ...meta,
-    });
+    }).catch(() => null);
 
     return success(
       request,
@@ -166,7 +162,7 @@ export async function POST(request) {
         username: user.username,
         role: user.role,
         mustChangePassword,
-        redirectTo,
+        redirectTo: redirectToPath,
       },
       token,
       maxAge
