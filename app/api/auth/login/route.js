@@ -28,6 +28,40 @@ function wantsJson(request) {
   return contentType.includes('application/json') || accept.includes('application/json');
 }
 
+function cleanBaseUrl(value) {
+  const raw = String(value || '').trim().replace(/\/$/, '');
+  if (!raw) return '';
+  if (raw.includes('localhost') || raw.includes('127.0.0.1')) return '';
+  return raw;
+}
+
+function getPublicBaseUrl(request) {
+  const appUrl = cleanBaseUrl(process.env.APP_URL);
+  if (appUrl) return appUrl;
+
+  const forwardedHost = request.headers.get('x-forwarded-host');
+  const host = forwardedHost || request.headers.get('host') || '';
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+
+  if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+    return `${forwardedProto}://${host}`;
+  }
+
+  return '';
+}
+
+function makeUrl(request, path, params = {}) {
+  const safePath = path && path.startsWith('/') && !path.startsWith('//') ? path : '/dashboard';
+  const base = getPublicBaseUrl(request);
+  const url = base ? new URL(safePath, base) : new URL(safePath, request.url);
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value) url.searchParams.set(key, value);
+  }
+
+  return url;
+}
+
 async function readLoginBody(request) {
   const contentType = request.headers.get('content-type') || '';
 
@@ -46,19 +80,11 @@ async function readLoginBody(request) {
   };
 }
 
-function loginUrl(request, params = {}) {
-  const url = new URL('/login', request.url);
-  for (const [key, value] of Object.entries(params)) {
-    if (value) url.searchParams.set(key, value);
-  }
-  return url;
-}
-
 function fail(request, message, status = 400) {
   if (wantsJson(request)) {
     return NextResponse.json({ ok: false, message }, { status });
   }
-  return NextResponse.redirect(loginUrl(request, { error: message }), { status: 303 });
+  return NextResponse.redirect(makeUrl(request, '/login', { error: message }), { status: 303 });
 }
 
 function success(request, payload, token, maxAge) {
@@ -70,7 +96,7 @@ function success(request, payload, token, maxAge) {
     return res;
   }
 
-  const res = NextResponse.redirect(new URL(payload.redirectTo, request.url), { status: 303 });
+  const res = NextResponse.redirect(makeUrl(request, payload.redirectTo), { status: 303 });
   res.cookies.set(AUTH_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
   res.cookies.set(LEGACY_COOKIE_NAME, token, { ...AUTH_COOKIE_OPTIONS, maxAge });
   res.headers.set('Cache-Control', 'no-store');
